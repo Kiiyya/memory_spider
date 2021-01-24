@@ -28,3 +28,13 @@ impl Arch for u64 {
         Self::wrapping_add(*self, other)
     }
 }
+
+#[repr(C)]
+pub(crate) union Bytes<T>
+    where
+        T: Sized,
+        [(); std::mem::size_of::<T>()]:
+{
+    pub(crate) t: std::mem::ManuallyDrop<T>,
+    pub(crate) bytes: [u8; std::mem::size_of::<T>()]
+}
