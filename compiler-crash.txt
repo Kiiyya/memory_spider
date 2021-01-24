@@ -1,0 +1,62 @@
+PS E:\hax\memory_spider> cargo build
+   Compiling memory_spider v0.1.0 (E:\hax\memory_spider)
+warning: the feature `const_generics` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> src\lib.rs:1:12
+  |
+1 | #![feature(const_generics)]
+  |            ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(incomplete_features)]` on by default
+  = note: see issue #44580 <https://github.com/rust-lang/rust/issues/44580> for more information
+
+warning: the feature `const_evaluatable_checked` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> src\lib.rs:2:12
+  |
+2 | #![feature(const_evaluatable_checked)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: see issue #76560 <https://github.com/rust-lang/rust/issues/76560> for more information
+
+warning: the feature `impl_trait_in_bindings` is incomplete and may not be safe to use and/or cause compiler crashes
+ --> src\lib.rs:4:12
+  |
+4 | #![feature(impl_trait_in_bindings)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: see issue #63065 <https://github.com/rust-lang/rust/issues/63065> for more information
+
+error[E0720]: cannot resolve opaque type
+   --> src\lib.rs:185:40
+    |
+185 | ...r<Ptr<Game, u64, impl Parent<u64, Memory: Memory<u64>>>, u64, ProcessHandle<u64>> = Ptr::new(&handle, 0xffff); // whole type has to be...
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot resolve opaque type   ------------------------- this is of type `Ptr<Ptr<Game, u64, impl Parent<u64>>, u64, ProcessHandle<u64>>`, which doesn't constrain `impl Parent<u64>` enough to arrive to a concrete type
+
+error: internal compiler error: compiler\rustc_typeck\src\check\mod.rs:489:9: can't type-check body of DefId(0:98 ~ memory_spider[b821]::user::{opaque#0})
+   --> src\lib.rs:185:40
+    |
+185 |     let something : Ptr<Ptr<Game, u64, impl Parent<u64, Memory: Memory<u64>>>, u64, ProcessHandle<u64>> = Ptr::new(&handle, 0xffff); // w...
+    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+thread 'rustc' panicked at 'Box<Any>', /rustc/4d0dd02ee07bddad9136f95c9f7846ebf3eb3fc5\compiler\rustc_errors\src\lib.rs:904:9
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+note: the compiler unexpectedly panicked. this is a bug.
+
+note: we would appreciate a bug report: https://github.com/rust-lang/rust/issues/new?labels=C-bug%2C+I-ICE%2C+T-compiler&template=ice.md
+
+note: rustc 1.51.0-nightly (4d0dd02ee 2021-01-23) running on x86_64-pc-windows-msvc
+
+note: compiler flags: -C embed-bitcode=no -C debuginfo=2 -C incremental --crate-type lib
+
+note: some of the compiler flags provided by cargo are hidden
+
+query stack during panic:
+#0 [typeck] type-checking `user::{opaque#0}`
+#1 [check_mod_item_types] checking item types in top-level module
+end of query stack
+error: aborting due to 2 previous errors; 3 warnings emitted
+
+For more information about this error, try `rustc --explain E0720`.
+error: could not compile `memory_spider`
+
+To learn more, run the command again with --verbose.

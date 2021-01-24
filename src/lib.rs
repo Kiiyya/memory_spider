@@ -11,7 +11,7 @@ pub mod arch;
 use arch::{Arch, ArchNative};
 
 /// More low-level thing.
-pub trait Memory<A: Arch> {
+pub trait Memory<A: Arch> : Copy {
     fn read_ptr(&self, addr: A) -> Result<A>;
 
     fn read_data(&self, addr: A, buf: &mut [u8]) -> Result<()>;
@@ -34,42 +34,51 @@ pub trait MemWrite<T: Sized + Copy, A: Arch> : MemGetAddress<A> {
     fn set(&self, val: &T) -> Result<()>;
 }
 
-pub trait Parent<A: Arch> : MemGetAddress<A> + Copy {
-    type Memory;
-    fn memory(&self) -> &Self::Memory;
-    fn memory_mut(&mut self) -> &mut Self::Memory;
+pub trait Parent<A, M> : MemGetAddress<A> + Copy
+    where
+        A: Arch,
+        M: Memory<A>,
+{
+    fn memory(&self) -> &M;
+    // /// Might have to implement blocking or something.
+    // fn memory_mut(&self) -> &mut M;
 }
 
 //////////// Pointer ///////////////////////////////////////////////////////////////
 
 #[derive(Clone, Copy)]
-pub struct Ptr<'p, T, A, P>
+pub struct Ptr<'p, T, A, M, P>
     where
         T: Sized + Copy,
         A: Arch,
-        P: Parent<A, Memory: Memory<A>>
+        M: Memory<A>,
+        P: Parent<A, M>,
 {
     parent: &'p P,
     offset: A,
     _phantom: PhantomData<T>,
+    // for some reason, rustc complains that M is unused otherwise...
+    _phantom2: PhantomData<M>,
 }
 
-impl <'p, T, A, P> MemGetAddress<A> for Ptr<'p, T, A, P>
+impl <'p, T, A, M, P> MemGetAddress<A> for Ptr<'p, T, A, M, P>
     where
         T: Sized + Copy,
         A: Arch,
-        P: Parent<A, Memory: Memory<A>>
+        M: Memory<A>,
+        P: Parent<A, M>,
 {
     fn get_address(&self) -> Result<A> {
         Ok(self.parent.get_address()?.add(self.offset))
     }
 }
 
-impl <'p, T, A, P> MemRead<T, A> for Ptr<'p, T, A, P>
+impl <'p, T, A, M, P> MemRead<T, A> for Ptr<'p, T, A, M, P>
     where
         T: Sized + Copy,
         A: Arch,
-        P: Parent<A, Memory: Memory<A>>,
+        M: Memory<A>,
+        P: Parent<A, M>,
         [(); std::mem::size_of::<T>()]:
 {
     fn get(&self) -> Result<T>
@@ -81,49 +90,76 @@ impl <'p, T, A, P> MemRead<T, A> for Ptr<'p, T, A, P>
     }
 }
 
-impl <'p, T, A, P> Ptr<'p, T, A, P>
+#[derive(Copy, Clone)]
+struct FakeParent;
+
+impl <A> MemGetAddress<A> for FakeParent
+    where
+        A: Arch,
+{
+    fn get_address(&self) -> Result<A> {
+        panic!()
+    }
+}
+
+impl <A, M> Parent<A, M> for FakeParent
+    where
+        A: Arch,
+        M: Memory<A>,
+{
+    fn memory(&self) -> &M {
+        panic!()
+    }
+}
+
+impl <'p, T, A, M, P> Ptr<'p, T, A, M, P>
     where 
         T: Sized + Copy,
         A: Arch,
-        P: Parent<A, Memory: Memory<A>>,
+        M: Memory<A>,
+        P: Parent<A, M>,
 {
     fn new(parent: &'p P, addr: A) -> Self {
         Self {
             parent,
             offset: addr,
-            _phantom: PhantomData
+            _phantom: PhantomData,
+            _phantom2: PhantomData,
         }
+    }
+
+    fn next(&self, addr: A) -> Ptr<'p, Ptr<'p, T, A, M, FakeParent>, A, M, P> { // impossible. Infinite unification
+
     }
 }
 
-impl <'p, T, A, P> Parent<A> for Ptr<'p, T, A, P>
+impl <'p, T, A, M, P> Parent<A, M> for Ptr<'p, T, A, M, P>
     where
         T: Sized + Copy,
         A: Arch,
-        P: Parent<A, Memory: Memory<A>>,
+        M: Memory<A>,
+        P: Parent<A, M>,
 {
-    type Memory = P::Memory;
-
-    fn memory(&self) -> &Self::Memory {
+    fn memory(&self) -> &M {
         self.parent.memory()
     }
 
-    fn memory_mut(&mut self) -> &mut Self::Memory {
-        self.parent.memory_mut()
-    }
+    // fn memory_mut(&mut self) -> &mut M {
+    //     self.parent.memory_mut()
+    // }
 }
 
-trait PtrChain<'p, T, A, P>
-    where 
-        T: Sized + Copy,
-        A: Arch,
-        P: Parent<A, Memory: Memory<A>>,
-{
+// trait PtrChain<'p, T, A, P>
+//     where 
+//         T: Sized + Copy,
+//         A: Arch,
+//         P: Parent<A, Memory: Memory<A>>,
+// {
 
-    // when we have a 
+//     // when we have a 
 
-    // fn ptr(&self, addr: A) -> Ptr<>;
-}
+//     // fn ptr(&self, addr: A) -> Ptr<>;
+// }
 
 ///////////// ProcessHandle ////////////////////////////////////////////////////////
 
@@ -138,19 +174,17 @@ impl <A: Arch> MemGetAddress<A> for ProcessHandle<A> {
     }
 }
 
-impl <A> Parent<A> for ProcessHandle<A>
+impl <A> Parent<A, ProcessHandle<A>> for ProcessHandle<A>
     where 
         A: Arch,
 {
-    type Memory = ProcessHandle<A>;
-
-    fn memory(&self) -> &Self::Memory {
+    fn memory(&self) -> &Self {
         self
     }
 
-    fn memory_mut(&mut self) -> &mut Self::Memory {
-        self
-    }
+    // fn memory_mut(&mut self) -> &mut Self {
+    //     self
+    // }
 }
 
 impl <A: Arch> Memory<A> for ProcessHandle<A> {
@@ -179,12 +213,38 @@ struct Game {
     player_list: Array<u32>,
 }
 
-fn user() {
+#[derive(Copy, Clone)]
+struct NoParent;
+
+impl <A> MemGetAddress<A> for NoParent
+    where
+        A: Arch,
+{
+    fn get_address(&self) -> Result<A> {
+        panic!()
+    }
+}
+
+impl <A, M> Parent<A, M> for NoParent
+    where
+        A: Arch,
+        M: Memory<A>,
+{
+    fn memory(&self) -> &M {
+        panic!()
+    }
+}
+
+fn user() -> Result<()> {
     let handle = ProcessHandle::<ArchNative> { _phantom: PhantomData, };
 
-    let something : Ptr<Ptr<Game, u64, impl Parent<u64, Memory: Memory<u64>>>, u64, ProcessHandle<u64>> = Ptr::new(&handle, 0xffff); // whole type has to be known or inferred here already.
+    let something : Ptr<u8, _, _, _> = Ptr::new(&handle, 0xffff); // whole type has to be known or inferred here already.
     // let gamestruct : Ptr<Game, _, Ptr<ProcessHandle<_>, _, _>>;
 
+    let target : Ptr<u8, u64, ProcessHandle<u64>, NoParent>;
+
+    let x = something.get()?;
 
 
+    todo!()
 }
