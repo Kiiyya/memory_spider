@@ -5,34 +5,8 @@ use std::{marker::PhantomData, mem::ManuallyDrop, todo};
 
 type Result<T> = std::result::Result<T, ()>;
 
-#[cfg(target_arch = "x86_64")]
-type ArchNative = u64;
-#[cfg(target_arch = "x86")]
-type ArchNative = u32;
-
-pub trait Arch : Clone + Copy {
-    type Relative;
-
-    fn null() -> Self;
-    /// Pointer addition, basically
-    fn add(&self, other: Self) -> Self;
-}
-impl Arch for u32 {
-    type Relative = i32;
-    #[inline(always)]
-    fn null() -> Self { 0 }
-    fn add(&self, other: Self) -> Self {
-        Self::wrapping_add(*self, other)
-    }
-}
-impl Arch for u64 {
-    type Relative = i64;
-    #[inline(always)]
-    fn null() -> Self { 0 }
-    fn add(&self, other: Self) -> Self {
-        Self::wrapping_add(*self, other)
-    }
-}
+pub mod arch;
+use arch::{Arch, ArchNative};
 
 pub trait Memory<A: Arch> {
     fn read_ptr(&self, addr: A) -> Result<A>;
@@ -41,19 +15,19 @@ pub trait Memory<A: Arch> {
     fn write_data(&self, addr: A, buf: &[u8]) -> Result<()>;
 }
 
-pub trait MemAddressOf<A: Arch> {
+pub trait MemGetAddress<A: Arch> {
     /// Where is our value?
-    fn address_of(&self) -> Result<A>;
+    fn get_address(&self) -> Result<A>;
 }
 
-pub trait MemRead<T: Sized + Clone, A: Arch> {
+pub trait MemRead<T: Sized + Clone, A: Arch> : MemGetAddress<A> {
     /// *(self.get_address())
     fn get(&self) -> Result<T>;
 
     // TODO: yeet_cache :D
 }
 
-pub trait MemWrite<T: Sized + Clone, A: Arch> {
+pub trait MemWrite<T: Sized + Clone, A: Arch> : MemGetAddress<A> {
     fn set(&self, val: &T) -> Result<()>;
 }
 
@@ -61,7 +35,7 @@ struct ProcessHandle<A> {
     _phantom: PhantomData<A>,
 }
 
-pub trait Parent<A: Arch> : MemAddressOf<A> {
+pub trait Parent<A: Arch> : MemGetAddress<A> {
     fn memory(&self) -> Box<dyn Memory<A>>;
 }
 
@@ -79,11 +53,11 @@ impl <A: Arch> Memory<A> for ProcessHandle<A> {
     }
 }
 
-impl <T, A> MemAddressOf<A> for Ptr<T, A>
+impl <T, A> MemGetAddress<A> for Ptr<T, A>
     where T: Sized + Clone, A: Arch,
 {
-    fn address_of(&self) -> Result<A> {
-        Ok(self.parent.address_of()?.add(self.offset))
+    fn get_address(&self) -> Result<A> {
+        Ok(self.parent.get_address()?.add(self.offset))
     }
 }
 
@@ -105,7 +79,7 @@ impl <T, A> MemRead<T, A> for Ptr<T, A>
 {
     fn get(&self) -> Result<T>
     {
-        let addr = self.address_of()?;
+        let addr = self.get_address()?;
         let mut buf = Bytes::<T> { bytes: [0u8; std::mem::size_of::<T>()] };
         self.parent.memory().read_data(addr, unsafe { &mut buf.bytes } )?;
         Ok(ManuallyDrop::into_inner(unsafe { buf.t } ))
@@ -120,8 +94,8 @@ pub struct Ptr<T, A> {
     _phantom: PhantomData<T>,
 }
 
-impl <A: Arch> MemAddressOf<A> for ProcessHandle<A> {
-    fn address_of(&self) -> Result<A> {
+impl <A: Arch> MemGetAddress<A> for ProcessHandle<A> {
+    fn get_address(&self) -> Result<A> {
         Ok(A::null())
     }
 }
