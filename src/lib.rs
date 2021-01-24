@@ -182,7 +182,7 @@ struct Game {
 fn user() {
     let handle = ProcessHandle::<ArchNative> { _phantom: PhantomData, };
 
-    let something : Ptr<Ptr<Game, u64, impl Parent<u64, Memory = ProcesHandle<u64>>>, u64, ProcessHandle<u64>> = Ptr::new(&handle, 0xffff); // whole type has to be known or inferred here already.
+    let something : Ptr<Ptr<Game, u64, impl Parent<u64, Memory: Memory<u64>>>, u64, ProcessHandle<u64>> = Ptr::new(&handle, 0xffff); // whole type has to be known or inferred here already.
     // let gamestruct : Ptr<Game, _, Ptr<ProcessHandle<_>, _, _>>;
 
 
