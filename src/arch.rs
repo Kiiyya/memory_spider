@@ -3,15 +3,15 @@ pub type ArchNative = u64;
 #[cfg(target_arch = "x86")]
 pub type ArchNative = u32;
 
-enum Endian {
+pub enum Endian {
     Little,
     Big,
 }
 
 pub trait Arch : Clone + Copy {
     /// How many bytes one pointer is.
-    const Width: usize;
-    const Endian: Endian;
+    const WIDTH: usize;
+    const ENDIAN: Endian;
     /// usually u64 or u32 (not usize)
     type Pointer;
     /// usually i64 or i32
@@ -35,13 +35,24 @@ pub struct Arch32Little(u32);
 impl Arch for Arch64Little {
     type Pointer = u64;
     type PointerRelative = i64;
-    const Width: usize = 8;
-    const Endian: Endian = Endian::Little;
+    const WIDTH: usize = 8;
+    const ENDIAN: Endian = Endian::Little;
 
     fn ptr_null() -> Self::Pointer {
         0
     }
 
+    fn ptr_add(lhs: Self::Pointer, rhs: Self::Pointer) -> Self::Pointer {
+        todo!()
+    }
+
+    fn ptr_to_bytes(me: Self::Pointer, buf: &mut [u8; std::mem::size_of::<Self::Pointer>()]) {
+        todo!()
+    }
+
+    fn ptr_from_bytes(buf: &[u8; std::mem::size_of::<Self::Pointer>()]) -> Self::Pointer {
+        todo!()
+    }
 }
 
 // impl Arch for u32 {
