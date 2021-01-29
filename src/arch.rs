@@ -26,13 +26,13 @@ pub trait Arch : Clone + Copy {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Arch64Little(u64);
+pub struct A64Le;
 #[derive(Debug, Clone, Copy)]
 pub struct Arch32Little(u32);
 // #[derive(Debug, Clone, Copy)]
 // pub struct Arch64Big(u64);
 
-impl Arch for Arch64Little {
+impl Arch for A64Le {
     type Pointer = u64;
     type PointerRelative = i64;
     const WIDTH: usize = 8;
