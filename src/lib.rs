@@ -7,7 +7,7 @@
 #![feature(new_uninit)]
 #![recursion_limit="512"]
 #![allow(dead_code, unused_variables, unused_imports)]
-use std::{cell::Cell, marker::{PhantomData, PhantomPinned}, mem::MaybeUninit, pin::Pin, rc::Rc};
+use std::{cell::Cell, marker::{PhantomData, PhantomPinned}, mem::MaybeUninit, pin::Pin, rc::Rc, rc::Weak};
 
 type Result<T> = std::result::Result<T, ()>;
 
@@ -23,7 +23,7 @@ pub trait GetAddress<A: Arch> {
     fn get_address(&self) -> A::Pointer;
 }
 
-impl <'root, A: Arch, T: Sized> GetAddress<A> for LibraryBase<'root, A, T> {
+impl <'root, A: Arch, T: Sized> GetAddress<A> for LibraryBase<A, T> {
     fn get_address(&self) -> A::Pointer {
         todo!()
     }
@@ -40,21 +40,26 @@ struct ProcessHandle<A: Arch> {
 }
 
 /////////////////////////
-pub trait Root<A: Arch> {
+pub trait Root<'ph, A: Arch> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer;
 }
 pub struct MyRoot<'ph, A: Arch, T: Sized> {
     process_handle: &'ph ProcessHandle<A>,
-    child: Option<Pin<Box<T>>>,
+    child: Option<Rc<T>>,
     // _phantom: PhantomData<T>,
     // _pp: PhantomPinned,
 }
+impl <'ph, A: Arch, T> Root<'ph, A> for MyRoot<'_, A, T> {
+    fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer {
+        todo!()
+    }
+}
 
 #[derive(Clone)]
-struct LibraryBase<'root, A: Arch, T: Sized> {
-    root: Pin<&'root dyn Root<A>>,
+struct LibraryBase<'ph, A: Arch, T: Sized> {
+    root: Weak<dyn Root<'ph, A>>,
     name: &'static str,
-    child: Option<Pin<Box<T>>>,
+    child: Option<Rc<T>>,
     // _phantom: PhantomData<T>,
 }
 
@@ -64,12 +69,8 @@ pub struct Ptr<A: Arch, T: Sized + Copy> {
     _phantom: PhantomData<T>,
 }
 
-impl <A: Arch, T: Sized> Root<A> for MyRoot<'_, A, T> {
-    fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer {
-        todo!()
-    }
-}
-impl <A: Arch, T: Sized> Parent<A> for LibraryBase<'_, A, T> {
+
+impl <'ph, A: Arch, T: Sized> Parent<A> for LibraryBase<'ph, A, T> {
 
 }
 impl <A: Arch> ProcessHandle<A> {
@@ -88,31 +89,27 @@ impl <A: Arch> ProcessHandle<A> {
         }
     }
 
-    pub fn via_lib<'ph, F, Inner>(&'ph self, lib: &'static str, f: F) -> Pin<Box<MyRoot<'ph, A, LibraryBase<'ph, A, Inner>>>>
+    pub fn via_lib<'ph, F, Inner>(&'ph self, lib: &'static str, f: F) -> Rc<MyRoot<'ph, A, LibraryBase<A, Inner>>>
         where
-            Inner: Sized + 'ph + Unpin, // TODO: REALLY unsure if this +Unpin is safe here!
-            F: FnOnce(Pin<&'ph dyn Root<A>>, Pin<&'ph dyn Parent<A>>) -> Pin<Box<Inner>>
+            Inner: Sized + 'ph,
+            F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>
     {
-        let mut root = Box::pin(MyRoot::<'ph, _, _> {
+        let mut root = Rc::new(MyRoot::<'ph> {
             process_handle: self,
             child: None,
-            // _phantom: PhantomData,
-            // _pp: PhantomPinned,
         });
 
         // let reff : &'ph dyn Root<A> = root.as_ref();
-        root.child = Some(Box::pin(LibraryBase::<'ph, _, _> {
-            root: root.as_ref(),
+        root.child = Some(Rc::new(LibraryBase {
+            root: Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>,
             name: lib,
-            // _phantom: PhantomData,
             child: None,
         }));
 
         // TODO: change to unwrap_unchecked some day.
-        root.child.unwrap().child = Some(f(root.as_ref(), root.child.unwrap().as_ref()));
+        // root.child.unwrap().child = Some(f(root.as_ref(), root.child.unwrap().as_ref()));
 
         root
-        // ()
     }
 }
 
@@ -124,6 +121,8 @@ fn user() -> Result<()> {
 
     // let game2 : impl Remote<A64Le, *const *const *const Game> = ph.via(0x123).via(0x01).via(0x02).to::<Game>();
     // let game3 = ph.via3([0x123, 0x01, 0x02]).to::<Game>();
+
+    // let somevalue = ph.at::<u32>(0xffff); // = .via(0xffff, |inner| inner.to::<Game>());
 
     // let x : Box<dyn Remote<A64Le, LibraryBase<Ptr<u32>>>> = ph.via_lib("GameAssembly.dll",
     //     |root, parent1| inner.via(0x1734672,
