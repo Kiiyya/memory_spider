@@ -99,31 +99,27 @@ impl <A: Arch> ProcessHandle<A> {
             child: None,
         });
 
-        // let root_weak = Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>;
         let lib = Rc::new(LibraryBase {
             root: Rc::downgrade(&root) as Weak<dyn Root<A>>,
             name: lib,
             child: None,
         });
-        Rc::get_mut(&mut root).unwrap().child = Some(lib);
 
-        let inner = f(
-            Rc::downgrade(&root) as Weak<dyn Root<A>>,
-            Rc::downgrade(root.child.as_ref().unwrap()) as Weak<dyn Parent<A>>,
-        );
-        // let x = Rc::get_mut(&mut root).unwrap().child.as_ref().unwrap();
-        // wtf
-        match Rc::get_mut(
-            (match Rc::get_mut(&mut root) {
-                Some(myroot) => myroot,
-                None => panic!("Uh oh. Did f make strong copies of Root?"),
-            }).child.as_mut().unwrap())
-        {
-            Some(mylib) => mylib,
-            None => panic!("Uh oh. Did f make strong copies of LibraryBase?"),
-        }.child = Some(inner);
+        // insert lib into root.
+        Rc::get_mut(&mut root).unwrap().child = Some(lib); // <-- error here because two weaks.
 
-        // Rc::get_mut(&mut root).unwrap().child.unwrap().child = Some(inner);
+        // let inner = f(
+        //     Rc::downgrade(&root) as Weak<dyn Root<A>>,
+        //     Rc::downgrade(root.child.as_ref().unwrap()) as Weak<dyn Parent<A>>,
+        // );
+
+        // // insert inner into lib.
+        // Rc::get_mut
+        // (
+        //     Rc::get_mut(&mut root).unwrap()
+        //         .child.as_mut().unwrap()
+        // ).unwrap()
+        //     .child = Some(inner);
 
         root
     }
