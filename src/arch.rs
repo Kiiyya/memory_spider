@@ -8,7 +8,7 @@ pub enum Endian {
     Big,
 }
 
-pub trait Arch : Clone + Copy + 'static {
+pub trait Arch: Clone + Copy + 'static {
     /// How many bytes one pointer is.
     const WIDTH: usize;
     const ENDIAN: Endian;
@@ -72,4 +72,3 @@ impl Arch for A64Le {
 //         Self::wrapping_add(*self, other)
 //     }
 // }
-

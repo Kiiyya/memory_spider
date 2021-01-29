@@ -7,13 +7,20 @@
 // #![feature(new_uninit)]
 // #![recursion_limit="512"]
 #![allow(dead_code, unused_variables, unused_imports)]
-use std::{cell::Cell, marker::{PhantomData, PhantomPinned}, mem::MaybeUninit, pin::Pin, rc::Rc, rc::Weak};
+use std::{
+    cell::Cell,
+    marker::{PhantomData, PhantomPinned},
+    mem::MaybeUninit,
+    pin::Pin,
+    rc::Rc,
+    rc::Weak,
+};
 
 type Result<T> = std::result::Result<T, ()>;
 
 // mod mess;
 pub mod arch;
-use arch::{Arch, A64Le, ArchNative};
+use arch::{A64Le, Arch, ArchNative};
 
 // pub trait Deref<T> {
 //     fn deref(&self) -> T;
@@ -29,10 +36,7 @@ use arch::{Arch, A64Le, ArchNative};
 //     }
 // }
 
-pub trait Parent<A> {
-
-}
-
+pub trait Parent<A> {}
 
 #[derive(Copy, Clone)]
 struct ProcessHandle<A: Arch> {
@@ -44,13 +48,16 @@ struct ProcessHandle<A: Arch> {
 pub trait Root<A: Arch> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer;
 }
-pub struct MyRoot<A: Arch, T: Sized> {
+#[derive(Clone)]
+pub struct ActualRoot<A: Arch, T: Sized> {
     process_handle: ProcessHandle<A>,
     child: Rc<T>,
-    // _phantom: PhantomData<T>,
-    // _pp: PhantomPinned,
 }
-impl <A: Arch, T> Root<A> for MyRoot<A, T> {
+#[derive(Clone)]
+pub struct MyRoot<A: Arch, T: Sized> {
+    actual: Rc<ActualRoot<A, T>>,
+}
+impl<A: Arch, T> Root<A> for ActualRoot<A, T> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer {
         todo!()
     }
@@ -70,33 +77,30 @@ pub struct Ptr<A: Arch, T: Sized + Copy> {
     _phantom: PhantomData<T>,
 }
 
-
-impl <A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {
-
-}
-impl <A: Arch> ProcessHandle<A> {
-    pub fn via_lib<F, Inner>(&self, lib: &'static str, f: F) -> Rc<MyRoot<A, LibraryBase<A, Inner>>>
-        where
-            Inner: Sized + 'static,
-            F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
+impl<A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {}
+impl<A: Arch> ProcessHandle<A> {
+    pub fn via_lib<F, Inner>(&self, lib: &'static str, f: F) -> MyRoot<A, LibraryBase<A, Inner>>
+    where
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
-        Rc::new_cyclic(|w_root: &Weak<MyRoot<A, _>>| {
-            MyRoot {
+        MyRoot {
+            actual: Rc::new_cyclic(|w_root: &Weak<ActualRoot<A, _>>| ActualRoot {
                 process_handle: *self,
-                child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| {
-                    LibraryBase {
-                        root: w_root.clone(),
-                        name: lib,
-                        child: f(w_root.clone(), w_lib.clone()),
-                    }
+                child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase {
+                    root: w_root.clone(),
+                    name: lib,
+                    child: f(w_root.clone(), w_lib.clone()),
                 }),
-            }
-        })
+            }),
+        }
     }
 }
 
 fn main() -> Result<()> {
-    let ph : ProcessHandle<A64Le> = ProcessHandle { _phantom: PhantomData };
+    let ph: ProcessHandle<A64Le> = ProcessHandle {
+        _phantom: PhantomData,
+    };
 
     let x = ph.via_lib("lib", |root, inner| Rc::new(0));
 
