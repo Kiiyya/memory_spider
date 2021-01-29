@@ -49,7 +49,7 @@ pub trait Root<A: Arch> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer;
 }
 #[derive(Clone)]
-pub struct ActualRoot<A: Arch, T: Sized> {
+struct ActualRoot<A: Arch, T: Sized> {
     process_handle: ProcessHandle<A>,
     child: Rc<T>,
 }
@@ -79,21 +79,41 @@ pub struct Ptr<A: Arch, T: Sized + Copy> {
 
 impl<A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {}
 impl<A: Arch> ProcessHandle<A> {
+    pub fn mk_root<F, Inner>(&self, f: F) -> MyRoot<A, Inner>
+    where
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<dyn Root<A>>) -> Rc<Inner>,
+    {
+        MyRoot {
+            actual: Rc::new_cyclic(|w_root: &Weak<ActualRoot<A, _>>| ActualRoot {
+                process_handle: *self,
+                child: f(w_root.clone()),
+            }),
+        }
+    }
+
     pub fn via_lib<F, Inner>(&self, lib: &'static str, f: F) -> MyRoot<A, LibraryBase<A, Inner>>
     where
         Inner: Sized + 'static,
         F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
-        MyRoot {
-            actual: Rc::new_cyclic(|w_root: &Weak<ActualRoot<A, _>>| ActualRoot {
-                process_handle: *self,
-                child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase {
-                    root: w_root.clone(),
-                    name: lib,
-                    child: f(w_root.clone(), w_lib.clone()),
-                }),
-            }),
-        }
+        // MyRoot {
+        //     actual: Rc::new_cyclic(|w_root: &Weak<ActualRoot<A, _>>| ActualRoot {
+        //         process_handle: *self,
+        //         child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase {
+        //             root: w_root.clone(),
+        //             name: lib,
+        //             child: f(w_root.clone(), w_lib.clone()),
+        //         }),
+        //     }),
+        // }
+        self.mk_root(|w_root| {
+            Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase::<A, Inner> {
+                root: w_root.clone(),
+                name: lib,
+                child: f(w_root.clone(), w_lib.clone()),
+            })
+        })
     }
 }
 
