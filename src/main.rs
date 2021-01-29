@@ -36,27 +36,28 @@ pub trait Parent<A> {
 #[derive(Copy, Clone)]
 struct ProcessHandle<A: Arch> {
     _phantom: PhantomData<A>,
+    // if you need a handle which can only exist once, use Rc here.
 }
 
 /////////////////////////
-pub trait Root<'ph, A: Arch> {
+pub trait Root<A: Arch> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer;
 }
-pub struct MyRoot<'ph, A: Arch, T: Sized> {
-    process_handle: &'ph ProcessHandle<A>,
+pub struct MyRoot<A: Arch, T: Sized> {
+    process_handle: ProcessHandle<A>,
     child: Option<Rc<T>>,
     // _phantom: PhantomData<T>,
     // _pp: PhantomPinned,
 }
-impl <'ph, A: Arch, T> Root<'ph, A> for MyRoot<'_, A, T> {
+impl <A: Arch, T> Root<A> for MyRoot<A, T> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer {
         todo!()
     }
 }
 
 #[derive(Clone)]
-struct LibraryBase<'ph, A: Arch, T: Sized> {
-    root: Weak<dyn Root<'ph, A>>,
+struct LibraryBase<A: Arch, T: Sized> {
+    root: Weak<dyn Root<A>>,
     name: &'static str,
     child: Option<Rc<T>>,
     // _phantom: PhantomData<T>,
@@ -69,7 +70,7 @@ pub struct Ptr<A: Arch, T: Sized + Copy> {
 }
 
 
-impl <'ph, A: Arch, T: Sized> Parent<A> for LibraryBase<'ph, A, T> {
+impl <A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {
 
 }
 impl <A: Arch> ProcessHandle<A> {
@@ -88,27 +89,26 @@ impl <A: Arch> ProcessHandle<A> {
         }
     }
 
-    pub fn via_lib<'ph, F, Inner>(&'ph self, lib: &'static str, f: F) -> Rc<MyRoot<'ph, A, LibraryBase<A, Inner>>>
+    pub fn via_lib<F, Inner>(&self, lib: &'static str, f: F) -> Rc<MyRoot<A, LibraryBase<A, Inner>>>
         where
-            Inner: Sized + 'ph,
-            'ph: 'static,
+            Inner: Sized +  'static,
             F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
-        let mut root = Rc::new(MyRoot::<'ph> {
-            process_handle: self,
+        let mut root = Rc::new(MyRoot {
+            process_handle: *self,
             child: None,
         });
 
         // let root_weak = Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>;
         let lib = Rc::new(LibraryBase {
-            root: Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>,
+            root: Rc::downgrade(&root) as Weak<dyn Root<A>>,
             name: lib,
             child: None,
         });
         Rc::get_mut(&mut root).unwrap().child = Some(lib);
 
         let inner = f(
-            Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>,
+            Rc::downgrade(&root) as Weak<dyn Root<A>>,
             Rc::downgrade(root.child.as_ref().unwrap()) as Weak<dyn Parent<A>>,
         );
         // let x = Rc::get_mut(&mut root).unwrap().child.as_ref().unwrap();
@@ -116,11 +116,11 @@ impl <A: Arch> ProcessHandle<A> {
         match Rc::get_mut(
             (match Rc::get_mut(&mut root) {
                 Some(myroot) => myroot,
-                None => panic!(),
+                None => panic!("Uh oh. Did f make strong copies of Root?"),
             }).child.as_mut().unwrap())
         {
             Some(mylib) => mylib,
-            None => panic!(),
+            None => panic!("Uh oh. Did f make strong copies of LibraryBase?"),
         }.child = Some(inner);
 
         // Rc::get_mut(&mut root).unwrap().child.unwrap().child = Some(inner);

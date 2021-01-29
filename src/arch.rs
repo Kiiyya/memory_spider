@@ -8,7 +8,7 @@ pub enum Endian {
     Big,
 }
 
-pub trait Arch : Clone + Copy {
+pub trait Arch : Clone + Copy + 'static {
     /// How many bytes one pointer is.
     const WIDTH: usize;
     const ENDIAN: Endian;
