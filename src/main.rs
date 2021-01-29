@@ -1,11 +1,10 @@
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
-#![feature(associated_type_bounds)]
-#![feature(impl_trait_in_bindings)]
-#![feature(const_fn)]
-#![feature(const_if_match)]
-#![feature(new_uninit)]
-#![recursion_limit="512"]
+// #![feature(associated_type_bounds)]
+// #![feature(impl_trait_in_bindings)]
+// #![feature(const_fn)]
+// #![feature(new_uninit)]
+// #![recursion_limit="512"]
 #![allow(dead_code, unused_variables, unused_imports)]
 use std::{cell::Cell, marker::{PhantomData, PhantomPinned}, mem::MaybeUninit, pin::Pin, rc::Rc, rc::Weak};
 
@@ -15,19 +14,19 @@ type Result<T> = std::result::Result<T, ()>;
 pub mod arch;
 use arch::{Arch, A64Le, ArchNative};
 
-pub trait Deref<T> {
-    fn deref(&self) -> T;
-}
+// pub trait Deref<T> {
+//     fn deref(&self) -> T;
+// }
 
-pub trait GetAddress<A: Arch> {
-    fn get_address(&self) -> A::Pointer;
-}
+// pub trait GetAddress<A: Arch> {
+//     fn get_address(&self) -> A::Pointer;
+// }
 
-impl <'root, A: Arch, T: Sized> GetAddress<A> for LibraryBase<A, T> {
-    fn get_address(&self) -> A::Pointer {
-        todo!()
-    }
-}
+// impl <'root, A: Arch, T: Sized> GetAddress<A> for LibraryBase<A, T> {
+//     fn get_address(&self) -> A::Pointer {
+//         todo!()
+//     }
+// }
 
 pub trait Parent<A> {
 
@@ -92,30 +91,49 @@ impl <A: Arch> ProcessHandle<A> {
     pub fn via_lib<'ph, F, Inner>(&'ph self, lib: &'static str, f: F) -> Rc<MyRoot<'ph, A, LibraryBase<A, Inner>>>
         where
             Inner: Sized + 'ph,
-            F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>
+            'ph: 'static,
+            F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
         let mut root = Rc::new(MyRoot::<'ph> {
             process_handle: self,
             child: None,
         });
 
-        // let reff : &'ph dyn Root<A> = root.as_ref();
-        root.child = Some(Rc::new(LibraryBase {
+        // let root_weak = Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>;
+        let lib = Rc::new(LibraryBase {
             root: Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>,
             name: lib,
             child: None,
-        }));
+        });
+        Rc::get_mut(&mut root).unwrap().child = Some(lib);
 
-        // TODO: change to unwrap_unchecked some day.
-        // root.child.unwrap().child = Some(f(root.as_ref(), root.child.unwrap().as_ref()));
+        let inner = f(
+            Rc::downgrade(&root) as Weak<dyn Root<'ph, A>>,
+            Rc::downgrade(root.child.as_ref().unwrap()) as Weak<dyn Parent<A>>,
+        );
+        // let x = Rc::get_mut(&mut root).unwrap().child.as_ref().unwrap();
+        // wtf
+        match Rc::get_mut(
+            (match Rc::get_mut(&mut root) {
+                Some(myroot) => myroot,
+                None => panic!(),
+            }).child.as_mut().unwrap())
+        {
+            Some(mylib) => mylib,
+            None => panic!(),
+        }.child = Some(inner);
+
+        // Rc::get_mut(&mut root).unwrap().child.unwrap().child = Some(inner);
 
         root
     }
 }
 
 
-fn user() -> Result<()> {
+fn main() -> Result<()> {
     let ph : ProcessHandle<A64Le> = ProcessHandle { _phantom: PhantomData };
+
+    let x = ph.via_lib("lib", |root, inner| Rc::new(0));
 
     // let game : impl Remote<A64Le, *const ()> = ph.point_somewhere(A64Le::ptr_null());
 
