@@ -23,7 +23,7 @@ pub trait GetAddress<A: Arch> {
     fn get_address(&self) -> A::Pointer;
 }
 
-impl <'root, A: Arch, T> GetAddress<A> for LibraryBase<'root, A, T> {
+impl <'root, A: Arch, T: Sized> GetAddress<A> for LibraryBase<'root, A, T> {
     fn get_address(&self) -> A::Pointer {
         todo!()
     }
@@ -32,10 +32,6 @@ impl <'root, A: Arch, T> GetAddress<A> for LibraryBase<'root, A, T> {
 pub trait Parent<A> {
 
 }
-
-pub trait Remote<A: Arch, T: Sized + Copy> { }
-
-
 
 
 #[derive(Copy, Clone)]
@@ -47,18 +43,18 @@ struct ProcessHandle<A: Arch> {
 pub trait Root<A: Arch> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer;
 }
-pub struct MyRoot<'ph, A: Arch, T: Sized + Copy> {
+pub struct MyRoot<'ph, A: Arch, T: Sized> {
     process_handle: &'ph ProcessHandle<A>,
-    inner: Option<T>,
+    child: Option<Pin<Box<T>>>,
     // _phantom: PhantomData<T>,
     // _pp: PhantomPinned,
 }
 
-#[derive(Clone, Copy)]
-struct LibraryBase<'root, A: Arch, T> {
+#[derive(Clone)]
+struct LibraryBase<'root, A: Arch, T: Sized> {
     root: Pin<&'root dyn Root<A>>,
     name: &'static str,
-    inner: Option<T>,
+    child: Option<Pin<Box<T>>>,
     // _phantom: PhantomData<T>,
 }
 
@@ -68,12 +64,12 @@ pub struct Ptr<A: Arch, T: Sized + Copy> {
     _phantom: PhantomData<T>,
 }
 
-impl <A: Arch, T: Sized + Copy> Root<A> for MyRoot<'_, A, T> {
+impl <A: Arch, T: Sized> Root<A> for MyRoot<'_, A, T> {
     fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer {
         todo!()
     }
 }
-impl <A: Arch, T: Sized + Copy> Parent<A> for LibraryBase<'_, A, T> {
+impl <A: Arch, T: Sized> Parent<A> for LibraryBase<'_, A, T> {
 
 }
 impl <A: Arch> ProcessHandle<A> {
@@ -94,26 +90,26 @@ impl <A: Arch> ProcessHandle<A> {
 
     pub fn via_lib<'ph, F, Inner>(&'ph self, lib: &'static str, f: F) -> Pin<Box<MyRoot<'ph, A, LibraryBase<'ph, A, Inner>>>>
         where
-            Inner: Sized + Copy + 'ph + Unpin, // TODO: REALLY unsure if this +Unpin is safe here!
-            F: FnOnce(Pin<&'ph dyn Root<A>>, &dyn Parent<A>) -> Inner
+            Inner: Sized + 'ph + Unpin, // TODO: REALLY unsure if this +Unpin is safe here!
+            F: FnOnce(Pin<&'ph dyn Root<A>>, Pin<&'ph dyn Parent<A>>) -> Pin<Box<Inner>>
     {
         let mut root = Box::pin(MyRoot::<'ph, _, _> {
             process_handle: self,
-            inner: None,
+            child: None,
             // _phantom: PhantomData,
             // _pp: PhantomPinned,
         });
 
         // let reff : &'ph dyn Root<A> = root.as_ref();
-        root.inner = Some(LibraryBase::<'ph, _, _> {
+        root.child = Some(Box::pin(LibraryBase::<'ph, _, _> {
             root: root.as_ref(),
             name: lib,
             // _phantom: PhantomData,
-            inner: None,
-        });
+            child: None,
+        }));
 
         // TODO: change to unwrap_unchecked some day.
-        // root.inner.unwrap().inner = Some(f(root.as_ref(), &root.inner.unwrap()));
+        root.child.unwrap().child = Some(f(root.as_ref(), root.child.unwrap().as_ref()));
 
         root
         // ()
