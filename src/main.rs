@@ -75,50 +75,15 @@ impl <A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {
 
 }
 impl <A: Arch> ProcessHandle<A> {
-    // pub fn point<T, const N: usize>(&self, offsets: [A::Pointer; N]) -> () {
-    //     if N > 0 {
-    //         self.point(offsets[1..].try_into().unwrap());
-    //     }
-    //     todo!();
-    // }
-
-    pub fn via(&self, offset: A::Pointer) -> Ptr<A, *const ()>
-    {
-        Ptr::<A, *const ()> {
-            address: offset,
-            _phantom: PhantomData,
-        }
-    }
-
     pub fn via_lib<F, Inner>(&self, lib: &'static str, f: F) -> Rc<MyRoot<A, LibraryBase<A, Inner>>>
         where
-            Inner: Sized +  'static,
+            Inner: Sized + 'static,
             F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
-        // let mut root = Rc::new(MyRoot {
-        //     process_handle: *self,
-        //     child: None,
-        // });
-        let root : Rc<MyRoot<A, LibraryBase<A, Inner>>> = Rc::new_cyclic(|w_root: &Weak<MyRoot<A, _>>| {
-            // let lib = Rc::new(LibraryBase::<A, Inner> {
-            //     root: w.clone(),
-            //     name: lib,
-            //     child: None,
-            // });
-            // let lib = Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| {
-            //     // let inner = f(w_root.clone(), w_lib.clone());
-
-            //     LibraryBase {
-            //         root: w_root.clone(),
-            //         name: lib,
-            //         child: f(w_root.clone(), w_lib.clone()),
-            //     }
-            // });
-
+        Rc::new_cyclic(|w_root: &Weak<MyRoot<A, _>>| {
             MyRoot {
                 process_handle: *self,
                 child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| {
-                    // let inner = f(w_root.clone(), w_lib.clone());
                     LibraryBase {
                         root: w_root.clone(),
                         name: lib,
@@ -126,35 +91,9 @@ impl <A: Arch> ProcessHandle<A> {
                     }
                 }),
             }
-        });
-
-        // let lib = Rc::new(LibraryBase {
-        //     root: Rc::downgrade(&root) as Weak<dyn Root<A>>,
-        //     name: lib,
-        //     child: None,
-        // });
-
-        // insert lib into root.
-        // Rc::get_mut(&mut root).unwrap().child = Some(lib); // <-- error here because two weaks.
-
-        // let inner = f(
-        //     Rc::downgrade(&root) as Weak<dyn Root<A>>,
-        //     Rc::downgrade(root.child.as_ref().unwrap()) as Weak<dyn Parent<A>>,
-        // );
-
-        // // insert inner into lib.
-        // Rc::get_mut
-        // (
-        //     Rc::get_mut(&mut root).unwrap()
-        //         .child.as_mut().unwrap()
-        // ).unwrap()
-        //     .child = Some(inner);
-
-        root
-        // ()
+        })
     }
 }
-
 
 fn main() -> Result<()> {
     let ph : ProcessHandle<A64Le> = ProcessHandle { _phantom: PhantomData };
