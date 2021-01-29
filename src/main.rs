@@ -1,5 +1,6 @@
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
+#![feature(arc_new_cyclic)]
 // #![feature(associated_type_bounds)]
 // #![feature(impl_trait_in_bindings)]
 // #![feature(const_fn)]
@@ -45,7 +46,7 @@ pub trait Root<A: Arch> {
 }
 pub struct MyRoot<A: Arch, T: Sized> {
     process_handle: ProcessHandle<A>,
-    child: Option<Rc<T>>,
+    child: Rc<T>,
     // _phantom: PhantomData<T>,
     // _pp: PhantomPinned,
 }
@@ -59,7 +60,7 @@ impl <A: Arch, T> Root<A> for MyRoot<A, T> {
 struct LibraryBase<A: Arch, T: Sized> {
     root: Weak<dyn Root<A>>,
     name: &'static str,
-    child: Option<Rc<T>>,
+    child: Rc<T>,
     // _phantom: PhantomData<T>,
 }
 
@@ -94,19 +95,47 @@ impl <A: Arch> ProcessHandle<A> {
             Inner: Sized +  'static,
             F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
-        let mut root = Rc::new(MyRoot {
-            process_handle: *self,
-            child: None,
+        // let mut root = Rc::new(MyRoot {
+        //     process_handle: *self,
+        //     child: None,
+        // });
+        let root : Rc<MyRoot<A, LibraryBase<A, Inner>>> = Rc::new_cyclic(|w_root: &Weak<MyRoot<A, _>>| {
+            // let lib = Rc::new(LibraryBase::<A, Inner> {
+            //     root: w.clone(),
+            //     name: lib,
+            //     child: None,
+            // });
+            // let lib = Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| {
+            //     // let inner = f(w_root.clone(), w_lib.clone());
+
+            //     LibraryBase {
+            //         root: w_root.clone(),
+            //         name: lib,
+            //         child: f(w_root.clone(), w_lib.clone()),
+            //     }
+            // });
+
+            MyRoot {
+                process_handle: *self,
+                child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| {
+                    // let inner = f(w_root.clone(), w_lib.clone());
+                    LibraryBase {
+                        root: w_root.clone(),
+                        name: lib,
+                        child: f(w_root.clone(), w_lib.clone()),
+                    }
+                }),
+            }
         });
 
-        let lib = Rc::new(LibraryBase {
-            root: Rc::downgrade(&root) as Weak<dyn Root<A>>,
-            name: lib,
-            child: None,
-        });
+        // let lib = Rc::new(LibraryBase {
+        //     root: Rc::downgrade(&root) as Weak<dyn Root<A>>,
+        //     name: lib,
+        //     child: None,
+        // });
 
         // insert lib into root.
-        Rc::get_mut(&mut root).unwrap().child = Some(lib); // <-- error here because two weaks.
+        // Rc::get_mut(&mut root).unwrap().child = Some(lib); // <-- error here because two weaks.
 
         // let inner = f(
         //     Rc::downgrade(&root) as Weak<dyn Root<A>>,
@@ -122,6 +151,7 @@ impl <A: Arch> ProcessHandle<A> {
         //     .child = Some(inner);
 
         root
+        // ()
     }
 }
 
