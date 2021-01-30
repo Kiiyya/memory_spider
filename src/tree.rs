@@ -1,6 +1,25 @@
 
 use std::{fs::write, marker::PhantomData, rc::Rc, rc::Weak};
-use crate::{Parent, arch::Arch, Root, Result, Error,};
+use crate::{arch::Arch, Result, Error,};
+
+////////////////////////////////////////////////////////////////////
+////////////// Tree stuff //////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+
+/// Roots handle platform-specific stuff; they usually hold the process handle.
+pub trait Root<A: Arch>: Parent<A> {
+    fn read_pointer(&self, addr: A::Pointer) -> Result<A::Pointer>;
+    fn read(&self, addr: A::Pointer, into: &mut [u8]) -> Result<()>;
+    fn write(&self, addr: A::Pointer, from: &[u8]) -> Result<()>;
+}
+
+pub trait Parent<A: Arch> {
+    fn root(&self) -> Result<Weak<dyn Root<A>>>;
+    /// Get the base address of self.
+    /// For a library, it'll be the base address.
+    /// Think of it like shifting the whole address space.
+    fn get_address(&self) -> Result<A::Pointer>;
+}
 
 ////////////////////////////////////////////////////////////////////
 ////////////// At //////////////////////////////////////////////////
@@ -46,9 +65,9 @@ pub trait Via<A: Arch> {
 
 #[derive(Clone)]
 pub struct Ptr<A: Arch, T: Sized> {
-    parent: Weak<dyn Parent<A>>,
-    offset: A::Pointer,
-    _phantom: PhantomData<T>,
+    pub(crate) parent: Weak<dyn Parent<A>>,
+    pub(crate) offset: A::Pointer,
+    pub(crate) _phantom: PhantomData<T>,
 }
 
 impl<A: Arch, T: Sized> Parent<A> for Ptr<A, T> {
@@ -84,9 +103,9 @@ pub trait ViaLib<A: Arch> {
 
 #[derive(Clone)]
 pub struct LibraryBase<A: Arch, T: Sized> {
-    root: Weak<dyn Root<A>>,
-    name: &'static str,
-    child: Rc<T>,
+    pub(crate) root: Weak<dyn Root<A>>,
+    pub(crate) name: &'static str,
+    pub(crate) child: Rc<T>,
 }
 
 impl<A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {

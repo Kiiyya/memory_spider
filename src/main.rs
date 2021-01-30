@@ -12,50 +12,20 @@ use std::{fs::write, marker::PhantomData, rc::Rc, rc::Weak};
 
 pub mod arch;
 pub mod error;
-pub mod wrappers;
+pub mod tree;
 pub mod process;
+mod mkroot;
 use error::{Error, Result};
 use arch::{A64Le, Arch, ArchNative};
-use wrappers::{LibraryBase, ViaLib, Via, Value, Ptr, At};
+use tree::{LibraryBase, ViaLib, Via, Value, Ptr, At};
 use process::{ProcessHandle, };
 
-////////////////////////////////////////////////////////////////////
-////////////// Tree stuff //////////////////////////////////////////
-////////////////////////////////////////////////////////////////////
-
-/// Roots handle platform-specific stuff; they usually hold the process handle.
-pub trait Root<A: Arch>: Parent<A> {
-    fn read_pointer(&self, addr: A::Pointer) -> Result<A::Pointer>;
-    fn read(&self, addr: A::Pointer, into: &mut [u8]) -> Result<()>;
-    fn write(&self, addr: A::Pointer, from: &[u8]) -> Result<()>;
-}
-
-/// Not pub because it's internal only really.
-/// A convenience thing used by the Via/ViaLib/Value/etc impelmentations for Roots.
-trait MkRoot<A: Arch> {
-    type TRoot<T>;
-    type TRootActual<T>;
-    fn mk_root<F, Inner>(&self, f: F) -> Self::TRoot<Inner>
-        where
-        Inner: Sized + 'static,
-        F: FnOnce(&Weak<Self::TRootActual<Inner>>) -> Rc<Inner>;
-}
-
-pub trait Parent<A: Arch> {
-    fn root(&self) -> Result<Weak<dyn Root<A>>>;
-    /// Get the base address of self.
-    /// For a library, it'll be the base address.
-    /// Think of it like shifting the whole address space.
-    fn get_address(&self) -> Result<A::Pointer>;
-}
 
 ////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////
 
 fn main() -> Result<()> {
-    let ph: ProcessHandle<A64Le> = ProcessHandle {
-        _phantom: PhantomData,
-    };
+    let ph: ProcessHandle<A64Le> = ProcessHandle::new();
 
     let x = ph.via_lib("GameAssembly.dll", |inner| Rc::new(0));
 

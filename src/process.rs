@@ -1,17 +1,25 @@
 use std::{fs::write, marker::PhantomData, rc::Rc, rc::Weak};
-use crate::error::{Error, Result};
-use crate::{arch::Arch, Root, MkRoot, Parent, };
-use crate::wrappers::{Via, ViaLib, At, LibraryBase, Value, };
+use crate::{error::{Error, Result}, mkroot::MkRoot};
+use crate::arch::Arch;
+use crate::tree::{Root, Parent, Via, ViaLib, At, LibraryBase, Value, };
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct ProcessHandle<A: Arch> {
     _phantom: PhantomData<A>,
     // if you need a handle which can only exist once, use Rc here.
 }
 
+impl <A: Arch> ProcessHandle<A> {
+    pub fn new() -> Self {
+        ProcessHandle {
+            _phantom: PhantomData
+        }
+    }
+}
+
 /// We need this wrapper so that we don't expose `Rc<RemoteRoot<...>>` to the public.
 #[derive(Clone)]
-struct RemoteRootActual<A: Arch, T: Sized> {
+pub struct RemoteRootActual<A: Arch, T: Sized> {
     process_handle: ProcessHandle<A>,
     child: Rc<T>,
     myself: Weak<dyn Root<A>>,
@@ -21,17 +29,26 @@ struct RemoteRootActual<A: Arch, T: Sized> {
 /// Eventually there might be a SelfRoot, or even NetworkRoot.
 #[derive(Clone)]
 pub struct RemoteRoot<A: Arch, T: Sized> {
+    /// We need this wrapper so that we don't expose `Rc<RemoteRoot<...>>` to the public.
     actual: Rc<RemoteRootActual<A, T>>,
 }
 
+impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
+    type TRoot<T> = RemoteRoot<A, T>;
+    type TRootActual<T: 'static> = RemoteRootActual<A, T>;
 
-impl<A: Arch, T> Parent<A> for RemoteRootActual<A, T> {
-    fn root(&self) -> Result<Weak<dyn Root<A>>> {
-        Ok(self.myself.clone())
-    }
-
-    fn get_address(&self) -> Result<A::Pointer> {
-        Ok(A::ptr_null())
+    fn mk_root<F, Inner>(&self, f: F) -> Self::TRoot<Inner>
+        where
+        Inner: Sized + 'static,
+        F: FnOnce(&Weak<Self::TRootActual<Inner>>) -> Rc<Inner>
+    {
+        RemoteRoot {
+            actual: Rc::new_cyclic(|w_root: &Weak<RemoteRootActual<A, _>>| RemoteRootActual {
+                myself: w_root.clone(),
+                process_handle: self.clone(),
+                child: f(&w_root.clone()),
+            }),
+        }
     }
 }
 
@@ -49,57 +66,49 @@ impl<A: Arch, T> Root<A> for RemoteRootActual<A, T> {
     }
 }
 
-impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
-    type TRoot<T> = RemoteRoot<A, T>;
-    type TRootActual<T> = RemoteRootActual<A, T>;
+impl<A: Arch, T> Parent<A> for RemoteRootActual<A, T> {
+    fn root(&self) -> Result<Weak<dyn Root<A>>> {
+        Ok(self.myself.clone())
+    }
 
-    fn mk_root<F, Inner>(&self, f: F) -> Self::TRoot<Inner>
-        where
-        Inner: Sized + 'static,
-        F: FnOnce(&Weak<Self::TRootActual<Inner>>) -> Rc<Inner>
-    {
-        RemoteRoot {
-            actual: Rc::new_cyclic(|w_root: &Weak<RemoteRootActual<A, _>>| RemoteRootActual {
-                myself: w_root.clone(),
-                process_handle: *self,
-                child: f(&w_root.clone()),
-            }),
-        }
+    fn get_address(&self) -> Result<A::Pointer> {
+        Ok(A::ptr_null())
     }
 }
 
-impl<A, R> ViaLib<A> for R //ProcessHandle<A>
-    where
-        A: Arch,
-        R: MkRoot<A>,
-{
-    type Result<T> = R::TRootActual<LibraryBase<A, T>>;
+// impl<A, R> ViaLib<A> for R //ProcessHandle<A>
+//     where
+//         A: Arch,
+//         R: MkRoot<A>,
+//         // <R as MkRoot<A>>::TRootActual<_>: 'static
+// {
+//     type Result<T> = R::TRoot<LibraryBase<A, T>>;
 
-    fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> Self::Result<Inner>
-    where
-        Inner: Sized + 'static,
-        F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>,
-    {
-        self.mk_root(|w_root| {
-            Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase::<A, Inner> {
-                root: w_root.clone(),
-                name,
-                child: f(w_lib.clone()),
-            })
-        })
-    }
-}
+//     fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> Self::Result<Inner>
+//     where
+//         Inner: Sized + 'static,
+//         F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>,
+//     {
+//         self.mk_root(|w_root| {
+//             Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase::<A, Inner> {
+//                 root: w_root.clone(),
+//                 name,
+//                 child: f(w_lib.clone()),
+//             })
+//         })
+//     }
+// }
 
-impl<A: Arch> At<A> for ProcessHandle<A> {
-    type Result<T> = RemoteRoot<A, Value<A, T>>;
+// impl<A: Arch> At<A> for ProcessHandle<A> {
+//     type Result<T> = RemoteRoot<A, Value<A, T>>;
 
-    fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> RemoteRoot<A, Value<A, T>> {
-        self.mk_root(|w_root| {
-            Rc::new_cyclic(|w| Value {
-                parent: w_root.clone(),
-                offset,
-                _phantom: PhantomData,
-            })
-        })
-    }
-}
+//     fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> RemoteRoot<A, Value<A, T>> {
+//         self.mk_root(|w_root| {
+//             Rc::new_cyclic(|w| Value {
+//                 parent: w_root.clone(),
+//                 offset,
+//                 _phantom: PhantomData,
+//             })
+//         })
+//     }
+// }
