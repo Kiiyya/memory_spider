@@ -1,5 +1,6 @@
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
+#![feature(generic_associated_types)]
 #![feature(arc_new_cyclic)]
 // #![feature(associated_type_bounds)]
 // #![feature(impl_trait_in_bindings)]
@@ -9,7 +10,19 @@
 #![allow(dead_code, unused_variables, unused_imports)]
 use std::{marker::PhantomData, rc::Rc, rc::Weak};
 
-type Result<T> = std::result::Result<T, ()>;
+#[derive(Debug)]
+pub enum Error {
+    StdIo(std::io::Error),
+    RootOrParentInvalid,
+}
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Error::StdIo(e)
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 pub mod arch;
 use arch::{A64Le, Arch, ArchNative};
@@ -18,16 +31,27 @@ use arch::{A64Le, Arch, ArchNative};
 ////////////// Tree stuff //////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////
 
-pub trait Root<A: Arch> : Parent<A> {
-    fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer;
+pub trait MkRoot<A: Arch> {
+    type Result<T>;
+    fn mk_root<F, Inner>(&self, f: F) -> Self::Result<Inner>
+        where
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<Self::Result<Inner>>) -> Rc<Inner>;
+}
+
+/// Roots handle platform-specific stuff; they usually hold the process handle.
+pub trait Root<A: Arch>: Parent<A> {
+    fn read_pointer(&self, addr: A::Pointer) -> Result<A::Pointer>;
+    fn read(&self, addr: A::Pointer, into: &mut [u8]) -> Result<()>;
+    fn write(&self, addr: A::Pointer, from: &[u8]) -> Result<()>;
 }
 
 pub trait Parent<A: Arch> {
-    fn root(&self) -> Weak<dyn Root<A>>;
+    fn root(&self) -> Result<Weak<dyn Root<A>>>;
     /// Get the base address of self.
     /// For a library, it'll be the base address.
     /// Think of it like shifting the whole address space.
-    fn get_address(&self) -> A::Pointer;
+    fn get_address(&self) -> Result<A::Pointer>;
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -57,44 +81,44 @@ struct LibraryBase<A: Arch, T: Sized> {
 }
 
 impl<A: Arch, T: Sized> Parent<A> for Value<A, T> {
-    fn root(&self) -> Weak<dyn Root<A>> {
+    fn root(&self) -> Result<Weak<dyn Root<A>>> {
         self.parent.upgrade().unwrap().root() // TODO: Fix upgrade.unwrap panic!
     }
 
-    fn get_address(&self) -> A::Pointer {
+    fn get_address(&self) -> Result<A::Pointer> {
         if let Some(s) = self.parent.upgrade() {
-            A::ptr_add(&s.get_address(), &self.offset)
-        }
-        else {
+            Ok(A::ptr_add(&s.get_address()?, &self.offset))
+        } else {
             panic!() // TODO: fix upgrade panic!
         }
     }
 }
+
 impl<A: Arch, T: Sized> Parent<A> for Ptr<A, T> {
-    fn root(&self) -> Weak<dyn Root<A>> {
+    fn root(&self) -> Result<Weak<dyn Root<A>>> {
         self.parent.upgrade().unwrap().root() // TODO: Fix upgrade.unwrap panic!
     }
 
-    fn get_address(&self) -> A::Pointer {
+    fn get_address(&self) -> Result<A::Pointer> {
         let root;
         let addr;
         {
             let parent = self.parent.upgrade().unwrap();
-            root = parent.root();
-            addr = parent.get_address();
+            root = parent.root()?;
+            addr = parent.get_address()?;
         } // parent goes out of scope here and is downgraded. We don't actually NEED to do this, but why not.
 
         let ptr_at = A::ptr_add(&addr, &self.offset);
-        root.upgrade().unwrap().read_pointer(ptr_at)
+        Ok(root.upgrade().unwrap().read_pointer(ptr_at)?)
     }
 }
 
 impl<A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {
-    fn root(&self) -> Weak<dyn Root<A>> {
-        self.root.clone()
+    fn root(&self) -> Result<Weak<dyn Root<A>>> {
+        Ok(self.root.clone())
     }
 
-    fn get_address(&self) -> A::Pointer {
+    fn get_address(&self) -> Result<A::Pointer> {
         todo!()
     }
 }
@@ -102,12 +126,21 @@ impl<A: Arch, T: Sized> Parent<A> for LibraryBase<A, T> {
 pub trait Via<A: Arch> {
     type Result;
     fn via<F, Inner>(&self, offset: A::Pointer) -> Self::Result
-        where F: FnOnce(Weak<dyn Parent<A>>) -> Inner;
+    where
+        F: FnOnce(Weak<dyn Parent<A>>) -> Inner;
+}
+
+pub trait ViaLib<A: Arch> {
+    type Result<T>;
+    fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> Self::Result<Inner>
+    where
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>;
 }
 
 pub trait At<A: Arch> {
-    type Result;
-    fn at<T: Sized>(&self) -> Self::Result;
+    type Result<T>;
+    fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> Self::Result<T>;
 }
 
 // impl<A: Arch> ViaTrait<A> for Weak<dyn Parent<A>> {
@@ -117,7 +150,6 @@ pub trait At<A: Arch> {
 //         todo!()
 //     }
 // }
-
 
 ////////////////////////////////////////////////////////////////////
 ////////////// Process Handle //////////////////////////////////////
@@ -145,7 +177,7 @@ pub struct RemoteRoot<A: Arch, T: Sized> {
 }
 
 impl<A: Arch> ProcessHandle<A> {
-    pub fn mk_root<F, Inner>(&self, f: F) -> RemoteRoot<A, Inner>
+    fn mk_root<F, Inner>(&self, f: F) -> RemoteRoot<A, Inner>
     where
         Inner: Sized + 'static,
         F: FnOnce(Weak<RemoteRootActual<A, Inner>>) -> Rc<Inner>,
@@ -159,58 +191,110 @@ impl<A: Arch> ProcessHandle<A> {
         }
     }
 
-    pub fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> RemoteRoot<A, LibraryBase<A, Inner>>
+    // pub fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> RemoteRoot<A, LibraryBase<A, Inner>>
+    // where
+    //     Inner: Sized + 'static,
+    //     F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
+    // {
+    //     self.mk_root(|w_root| {
+    //         Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase::<A, Inner> {
+    //             root: w_root.clone(),
+    //             name,
+    //             child: f(w_root.clone(), w_lib.clone()),
+    //         })
+    //     })
+    // }
+
+    // pub fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> RemoteRoot<A, Value<A, T>> {
+    //     self.mk_root(|w_root| {
+    //         Rc::new_cyclic(|w| Value {
+    //             parent: w_root.clone(),
+    //             offset,
+    //             _phantom: PhantomData,
+    //         })
+    //     })
+    // }
+}
+
+impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
+    type Result<T> = RemoteRoot<A, T>;
+
+    fn mk_root<F, Inner>(&self, f: F) -> Self::Result<Inner>
+        where
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<Self::Result<Inner>>) -> Rc<Inner>
+    {
+        RemoteRoot {
+            actual: Rc::new_cyclic(|w_root: &Weak<RemoteRootActual<A, _>>| RemoteRootActual {
+                myself: w_root.clone(),
+                process_handle: *self,
+                child: f(w_root.clone()),
+            }),
+        }
+    }
+}
+
+impl<A: Arch> ViaLib<A> for ProcessHandle<A> {
+    type Result<T> = RemoteRoot<A, LibraryBase<A, T>>;
+
+    fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> Self::Result<Inner>
+    //RemoteRoot<A, LibraryBase<A, Inner>>
     where
         Inner: Sized + 'static,
-        F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
+        F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>,
     {
-        // MyRoot {
-        //     actual: Rc::new_cyclic(|w_root: &Weak<ActualRoot<A, _>>| ActualRoot {
-        //         process_handle: *self,
-        //         child: Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase {
-        //             root: w_root.clone(),
-        //             name: lib,
-        //             child: f(w_root.clone(), w_lib.clone()),
-        //         }),
-        //     }),
-        // }
         self.mk_root(|w_root| {
             Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase::<A, Inner> {
                 root: w_root.clone(),
                 name,
-                child: f(w_root.clone(), w_lib.clone()),
+                child: f(w_lib.clone()),
             })
         })
     }
+}
 
-    pub fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> RemoteRoot<A, Value<A, T>> {
-        self.mk_root(|w_root| Rc::new_cyclic(|w|
-            Value {
+impl<A: Arch> At<A> for ProcessHandle<A> {
+    type Result<T> = RemoteRoot<A, Value<A, T>>;
+
+    fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> RemoteRoot<A, Value<A, T>> {
+        self.mk_root(|w_root| {
+            Rc::new_cyclic(|w| Value {
                 parent: w_root.clone(),
                 offset,
                 _phantom: PhantomData,
-            }
-        ))
+            })
+        })
     }
 }
 
 
+impl<A: Arch, T> Parent<A> for RemoteRootActual<A, T> {
+    fn root(&self) -> Result<Weak<dyn Root<A>>> {
+        Ok(self.myself.clone())
+    }
+
+    fn get_address(&self) -> Result<A::Pointer> {
+        Ok(A::ptr_null())
+    }
+}
+
 impl<A: Arch, T> Root<A> for RemoteRootActual<A, T> {
-    fn read_pointer(&self, ptr: A::Pointer) -> A::Pointer {
+    fn read_pointer(&self, ptr: A::Pointer) -> Result<A::Pointer> {
+        todo!()
+    }
+
+    fn read(&self, addr: A::Pointer, into: &mut [u8]) -> Result<()> {
+        todo!()
+    }
+
+    fn write(&self, addr: A::Pointer, from: &[u8]) -> Result<()> {
         todo!()
     }
 }
 
-impl<A: Arch, T: Sized> Parent<A> for RemoteRootActual<A, T> {
-    fn root(&self) -> Weak<dyn Root<A>> {
-        self.myself.clone()
-        // Rc::downgrade(&self.actual) as Weak<dyn Root<A>>
-    }
-
-    fn get_address(&self) -> A::Pointer {
-        A::ptr_null()
-    }
-}
+////////////////////////////////////////////////////////////////////
+//////////////// SelfRoot //////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////
@@ -220,7 +304,7 @@ fn main() -> Result<()> {
         _phantom: PhantomData,
     };
 
-    let x = ph.via_lib("GameAssembly.dll", |root, inner| Rc::new(0));
+    let x = ph.via_lib("GameAssembly.dll", |inner| Rc::new(0));
 
     // let game : impl Remote<A64Le, *const ()> = ph.point_somewhere(A64Le::ptr_null());
 
