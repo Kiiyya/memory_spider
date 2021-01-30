@@ -33,10 +33,11 @@ use arch::{A64Le, Arch, ArchNative};
 
 pub trait MkRoot<A: Arch> {
     type Result<T>;
+    type ResultActual<T>;
     fn mk_root<F, Inner>(&self, f: F) -> Self::Result<Inner>
         where
         Inner: Sized + 'static,
-        F: FnOnce(Weak<Self::Result<Inner>>) -> Rc<Inner>;
+        F: FnOnce(Weak<Self::ResultActual<Inner>>) -> Rc<Inner>;
 }
 
 /// Roots handle platform-specific stuff; they usually hold the process handle.
@@ -176,53 +177,14 @@ pub struct RemoteRoot<A: Arch, T: Sized> {
     actual: Rc<RemoteRootActual<A, T>>,
 }
 
-impl<A: Arch> ProcessHandle<A> {
-    fn mk_root<F, Inner>(&self, f: F) -> RemoteRoot<A, Inner>
-    where
-        Inner: Sized + 'static,
-        F: FnOnce(Weak<RemoteRootActual<A, Inner>>) -> Rc<Inner>,
-    {
-        RemoteRoot {
-            actual: Rc::new_cyclic(|w_root: &Weak<RemoteRootActual<A, _>>| RemoteRootActual {
-                myself: w_root.clone(),
-                process_handle: *self,
-                child: f(w_root.clone()),
-            }),
-        }
-    }
-
-    // pub fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> RemoteRoot<A, LibraryBase<A, Inner>>
-    // where
-    //     Inner: Sized + 'static,
-    //     F: FnOnce(Weak<dyn Root<A>>, Weak<dyn Parent<A>>) -> Rc<Inner>,
-    // {
-    //     self.mk_root(|w_root| {
-    //         Rc::new_cyclic(|w_lib: &Weak<LibraryBase<A, _>>| LibraryBase::<A, Inner> {
-    //             root: w_root.clone(),
-    //             name,
-    //             child: f(w_root.clone(), w_lib.clone()),
-    //         })
-    //     })
-    // }
-
-    // pub fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> RemoteRoot<A, Value<A, T>> {
-    //     self.mk_root(|w_root| {
-    //         Rc::new_cyclic(|w| Value {
-    //             parent: w_root.clone(),
-    //             offset,
-    //             _phantom: PhantomData,
-    //         })
-    //     })
-    // }
-}
-
 impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
     type Result<T> = RemoteRoot<A, T>;
+    type ResultActual<T> = RemoteRootActual<A, T>;
 
     fn mk_root<F, Inner>(&self, f: F) -> Self::Result<Inner>
         where
         Inner: Sized + 'static,
-        F: FnOnce(Weak<Self::Result<Inner>>) -> Rc<Inner>
+        F: FnOnce(Weak<Self::ResultActual<Inner>>) -> Rc<Inner>
     {
         RemoteRoot {
             actual: Rc::new_cyclic(|w_root: &Weak<RemoteRootActual<A, _>>| RemoteRootActual {
