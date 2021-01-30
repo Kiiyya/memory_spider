@@ -1,5 +1,5 @@
 use std::{fs::write, marker::PhantomData, rc::Rc, rc::Weak};
-use crate::{error::{Error, Result}, mkroot::MkRoot};
+use crate::{Get, error::{Error, Result}, mkroot::MkRoot, tree::GetAddress};
 use crate::arch::Arch;
 use crate::tree::{Root, Parent, Via, ViaLib, At, LibraryBase, Value, };
 
@@ -20,9 +20,9 @@ impl <A: Arch> ProcessHandle<A> {
 /// We need this wrapper so that we don't expose `Rc<RemoteRoot<...>>` to the public.
 #[derive(Clone)]
 pub struct RemoteRootActual<A: Arch, T: Sized> {
-    process_handle: ProcessHandle<A>,
-    child: Rc<T>,
-    myself: Weak<dyn Root<A>>,
+    pub(crate) process_handle: ProcessHandle<A>,
+    pub(crate) child: Rc<T>,
+    pub(crate) myself: Weak<dyn Root<A>>,
 }
 
 /// Represents the memory address space of another process.
@@ -30,7 +30,18 @@ pub struct RemoteRootActual<A: Arch, T: Sized> {
 #[derive(Clone)]
 pub struct RemoteRoot<A: Arch, T: Sized> {
     /// We need this wrapper so that we don't expose `Rc<RemoteRoot<...>>` to the public.
-    actual: Rc<RemoteRootActual<A, T>>,
+    pub(crate) actual: Rc<RemoteRootActual<A, T>>,
+}
+
+impl <A, T> Get<A> for RemoteRoot<A, T>
+    where
+        A: Arch,
+{
+    type T = Rc<T>;
+
+    fn get(&self) -> Result<Rc<T>> {
+        Ok(self.actual.child.clone())
+    }
 }
 
 impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
@@ -66,13 +77,15 @@ impl<A: Arch, T> Root<A> for RemoteRootActual<A, T> {
     }
 }
 
+impl <A: Arch, T> GetAddress<A> for RemoteRootActual<A, T> {
+    fn get_address(&self) -> Result<A::Pointer> {
+        Ok(A::ptr_null())
+    }
+}
+
 impl<A: Arch, T> Parent<A> for RemoteRootActual<A, T> {
     fn root(&self) -> Result<Weak<dyn Root<A>>> {
         Ok(self.myself.clone())
-    }
-
-    fn get_address(&self) -> Result<A::Pointer> {
-        Ok(A::ptr_null())
     }
 }
 

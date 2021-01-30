@@ -2,7 +2,7 @@
 #[derive(Debug)]
 pub enum Error {
     StdIo(std::io::Error),
-    RootOrParentInvalid,
+    RootDropped,
 }
 
 impl From<std::io::Error> for Error {
@@ -10,5 +10,11 @@ impl From<std::io::Error> for Error {
         Error::StdIo(e)
     }
 }
+
+// impl From<NoneError> for Error {
+//     fn from(_: NoneError) -> Self {
+//         Error::NoneError
+//     }
+// }
 
 pub type Result<T> = std::result::Result<T, Error>;
