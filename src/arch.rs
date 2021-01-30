@@ -19,7 +19,7 @@ pub trait Arch: Clone + Copy + 'static {
 
     fn ptr_null() -> Self::Pointer;
     /// Pointer addition, basically
-    fn ptr_add(lhs: Self::Pointer, rhs: Self::Pointer) -> Self::Pointer;
+    fn ptr_add(lhs: &Self::Pointer, rhs: &Self::Pointer) -> Self::Pointer;
 
     fn ptr_to_bytes(me: Self::Pointer, buf: &mut [u8; std::mem::size_of::<Self::Pointer>()]);
     fn ptr_from_bytes(buf: &[u8; std::mem::size_of::<Self::Pointer>()]) -> Self::Pointer;
@@ -42,8 +42,8 @@ impl Arch for A64Le {
         0
     }
 
-    fn ptr_add(lhs: Self::Pointer, rhs: Self::Pointer) -> Self::Pointer {
-        todo!()
+    fn ptr_add(lhs: &Self::Pointer, rhs: &Self::Pointer) -> Self::Pointer {
+        Self::Pointer::wrapping_add(*lhs, *rhs)
     }
 
     fn ptr_to_bytes(me: Self::Pointer, buf: &mut [u8; std::mem::size_of::<Self::Pointer>()]) {
