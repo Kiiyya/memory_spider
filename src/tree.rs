@@ -25,6 +25,7 @@ pub trait Parent<A: Arch> {
 ////////////// At //////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////
 
+/// The value we want, is at (parent address) + (offset).
 pub trait At<A: Arch> {
     type Result<T>;
     fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> Self::Result<T>;
@@ -33,9 +34,9 @@ pub trait At<A: Arch> {
 /// A value located at the address (relative to parent).
 #[derive(Clone)]
 pub struct Value<A: Arch, T: Sized> {
-    parent: Weak<dyn Parent<A>>,
-    offset: A::Pointer,
-    _phantom: PhantomData<T>,
+    pub(crate) parent: Weak<dyn Parent<A>>,
+    pub(crate) offset: A::Pointer,
+    pub(crate) _phantom: PhantomData<T>,
 }
 
 impl<A: Arch, T: Sized> Parent<A> for Value<A, T> {

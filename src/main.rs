@@ -27,7 +27,11 @@ use process::{ProcessHandle, };
 fn main() -> Result<()> {
     let ph: ProcessHandle<A64Le> = ProcessHandle::new();
 
-    let x = ph.via_lib("GameAssembly.dll", |inner| Rc::new(0));
+    let x = 123_i32;
+
+    // let x = ph.via_lib("GameAssembly.dll", |inner| Rc::new(0));
+    let test = ph.at::<i32>(&x as *const _ as u64);
+    
 
     // let game : impl Remote<A64Le, *const ()> = ph.point_somewhere(A64Le::ptr_null());
 
@@ -44,5 +48,5 @@ fn main() -> Result<()> {
 
     // let y = x.
 
-    todo!()
+    Ok(())
 }

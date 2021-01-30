@@ -4,9 +4,9 @@
 //! else will fall into place automatically.
 //! This module contains blanket implementations of Via, etc, which do that.
 
-use std::rc::{Rc, Weak};
+use std::{marker::PhantomData, rc::{Rc, Weak}};
 
-use crate::{arch::Arch, tree::{LibraryBase, Parent, Root, ViaLib}};
+use crate::{arch::Arch, tree::{At, LibraryBase, Parent, Root, Value, ViaLib}};
 
 /// Not pub because it's internal only really.
 /// A convenience thing used by the Via/ViaLib/Value/etc impelmentations for Roots.
@@ -19,11 +19,10 @@ pub trait MkRoot<A: Arch> {
         F: FnOnce(&Weak<Self::TRootActual<Inner>>) -> Rc<Inner>;
 }
 
-impl<A, R> ViaLib<A> for R //ProcessHandle<A>
+impl<A, R> ViaLib<A> for R
     where
         A: Arch,
         R: MkRoot<A>,
-        // <R as MkRoot<A>>::TRootActual<_>: 'static
 {
     type Result<T> = R::TRoot<LibraryBase<A, T>>;
 
@@ -37,6 +36,24 @@ impl<A, R> ViaLib<A> for R //ProcessHandle<A>
                 root: w_root.clone(),
                 name,
                 child: f(w_lib.clone()),
+            })
+        })
+    }
+}
+
+impl<A, R> At<A> for R
+    where 
+        A: Arch,
+        R: MkRoot<A>,
+{
+    type Result<T> = R::TRoot<Value<A, T>>;
+
+    fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> Self::Result<T> {
+        self.mk_root(|w_root| {
+            Rc::new_cyclic(|w| Value {
+                parent: w_root.clone(),
+                offset,
+                _phantom: PhantomData,
             })
         })
     }
