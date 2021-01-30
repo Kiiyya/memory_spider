@@ -2,7 +2,7 @@
 #![feature(const_evaluatable_checked)]
 #![feature(generic_associated_types)]
 #![feature(arc_new_cyclic)]
-// #![feature(associated_type_bounds)]
+#![feature(associated_type_bounds)]
 // #![feature(impl_trait_in_bindings)]
 // #![feature(const_fn)]
 // #![feature(new_uninit)]
@@ -31,13 +31,15 @@ use arch::{A64Le, Arch, ArchNative};
 ////////////// Tree stuff //////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////
 
-pub trait MkRoot<A: Arch> {
-    type Result<T>;
-    type ResultActual<T>;
-    fn mk_root<F, Inner>(&self, f: F) -> Self::Result<Inner>
+/// Not pub because it's internal only really.
+/// A convenience thing used by the Via/ViaLib/Value/etc impelmentations for Roots.
+trait MkRoot<A: Arch> {
+    type TRoot<T>;
+    type TRootActual<T>;
+    fn mk_root<F, Inner>(&self, f: F) -> Self::TRoot<Inner>
         where
         Inner: Sized + 'static,
-        F: FnOnce(Weak<Self::ResultActual<Inner>>) -> Rc<Inner>;
+        F: FnOnce(&Weak<Self::TRootActual<Inner>>) -> Rc<Inner>;
 }
 
 /// Roots handle platform-specific stuff; they usually hold the process handle.
@@ -178,29 +180,32 @@ pub struct RemoteRoot<A: Arch, T: Sized> {
 }
 
 impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
-    type Result<T> = RemoteRoot<A, T>;
-    type ResultActual<T> = RemoteRootActual<A, T>;
+    type TRoot<T> = RemoteRoot<A, T>;
+    type TRootActual<T> = RemoteRootActual<A, T>;
 
-    fn mk_root<F, Inner>(&self, f: F) -> Self::Result<Inner>
+    fn mk_root<F, Inner>(&self, f: F) -> Self::TRoot<Inner>
         where
         Inner: Sized + 'static,
-        F: FnOnce(Weak<Self::ResultActual<Inner>>) -> Rc<Inner>
+        F: FnOnce(&Weak<Self::TRootActual<Inner>>) -> Rc<Inner>
     {
         RemoteRoot {
             actual: Rc::new_cyclic(|w_root: &Weak<RemoteRootActual<A, _>>| RemoteRootActual {
                 myself: w_root.clone(),
                 process_handle: *self,
-                child: f(w_root.clone()),
+                child: f(&w_root.clone()),
             }),
         }
     }
 }
 
-impl<A: Arch> ViaLib<A> for ProcessHandle<A> {
-    type Result<T> = RemoteRoot<A, LibraryBase<A, T>>;
+impl<A, R> ViaLib<A> for R
+    where
+        A: Arch,
+        R: MkRoot<A, TRoot: Root<A>>,
+{
+    type Result<T> = R::TRootActual<LibraryBase<A, T>>;
 
     fn via_lib<F, Inner>(&self, name: &'static str, f: F) -> Self::Result<Inner>
-    //RemoteRoot<A, LibraryBase<A, Inner>>
     where
         Inner: Sized + 'static,
         F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>,
@@ -228,7 +233,6 @@ impl<A: Arch> At<A> for ProcessHandle<A> {
         })
     }
 }
-
 
 impl<A: Arch, T> Parent<A> for RemoteRootActual<A, T> {
     fn root(&self) -> Result<Weak<dyn Root<A>>> {
