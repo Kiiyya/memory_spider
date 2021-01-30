@@ -1,7 +1,7 @@
 #[cfg(target_arch = "x86_64")]
-pub type ArchNative = u64;
-#[cfg(target_arch = "x86")]
-pub type ArchNative = u32;
+pub type ArchNative = A64Le;
+// #[cfg(target_arch = "x86")]
+// pub type ArchNative = u32;
 
 pub enum Endian {
     Little,
