@@ -1,5 +1,5 @@
 
-use std::{marker::PhantomData, rc::Rc, rc::Weak};
+use std::{marker::PhantomData, mem::size_of, rc::Rc, rc::Weak};
 use crate::{Error, Get, Result, arch::Arch};
 
 ////////////////////////////////////////////////////////////////////
@@ -29,15 +29,15 @@ pub trait Root<A: Arch> : Parent<A> {
 /// we need this trick. It's really just a trick, because I couldn't put them
 /// into Root directly...
 trait TypedMemory<A: Arch> {
-    fn read_t<T: Sized>(&self, addr: A::Pointer) -> Result<T>;
-        // where [(); std::mem::size_of::<T>()]:;
-    fn write_t<T: Sized>(&self, addr: A::Pointer, value: &T) -> Result<()>;
-        // where [(); std::mem::size_of::<T>()]:;
+    fn read_t<T: Sized>(&self, addr: A::Pointer) -> Result<T>
+        where [(); std::mem::size_of::<T>()]:;
+    fn write_t<T: Sized>(&self, addr: A::Pointer, value: &T) -> Result<()>
+        where [(); std::mem::size_of::<T>()]:;
 }
 
 impl <A: Arch> TypedMemory<A> for Rc<dyn Root<A>> {
     fn read_t<T: Sized>(&self, addr: A::Pointer) -> Result<T>
-        // where [(); std::mem::size_of::<T>()]:
+        where [(); std::mem::size_of::<T>()]:
     {
         let mut buf = [0u8; std::mem::size_of::<T>()];
         self.read(addr, &mut buf)?;
@@ -45,7 +45,7 @@ impl <A: Arch> TypedMemory<A> for Rc<dyn Root<A>> {
     }
 
     fn write_t<T: Sized>(&self, addr: A::Pointer, value: &T) -> Result<()>
-        // where [(); std::mem::size_of::<T>()]:
+        where [(); std::mem::size_of::<T>()]:
     {
         todo!()
     }
@@ -72,7 +72,8 @@ pub struct Value<A: Arch, T: Sized> {
 impl <A: Arch, T> GetAddress<A> for Value<A, T> {
     fn get_address(&self) -> Result<A::Pointer> {
         if let Some(s) = self.parent.upgrade() {
-            Ok(A::ptr_add(&s.get_address()?, &self.offset))
+            Ok(s.get_address()? + self.offset)
+            // Ok(A::ptr_add(&s.get_address()?, &self.offset))
         } else {
             panic!() // TODO: fix upgrade panic!
         }
@@ -99,15 +100,13 @@ impl <A, T> Get<A> for Value<A, T>
     where
         A: Arch,
         T: Sized + Copy,
+        [(); std::mem::size_of::<T>()]:
 {
     type T = T;
 
     fn get(&self) -> Result<T> {
         match self.root()?.upgrade() {
-            Some(root) => {
-
-                Ok(root.read_t(self.get_address()?)?)
-            }
+            Some(root) => Ok(root.read_t(self.get_address()?)?),
             None => Err(Error::RootDropped),
         }
     }
@@ -142,7 +141,8 @@ impl <A: Arch, T> GetAddress<A> for Ptr<A, T> {
             addr = parent.get_address()?;
         } // parent goes out of scope here and is downgraded. We don't actually NEED to do this, but why not.
 
-        let ptr_at = A::ptr_add(&addr, &self.offset);
+        // let ptr_at = A::ptr_add(&addr, &self.offset);
+        let ptr_at = addr + self.offset;
         Ok(root.upgrade().unwrap().read_pointer(ptr_at)?)
     }
 }

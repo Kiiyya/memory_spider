@@ -35,8 +35,7 @@ fn main() -> Result<()> {
 
     let x = 123_i32;
 
-    // let x = ph.via_lib("GameAssembly.dll", |inner| Rc::new(0));
-    let test : RemoteRoot<A64Le, Value<A64Le, i32>> = ph.at::<i32>(&x as *const _ as u64);
+    let test = ph.at::<i32>(&x as *const _ as u64);
     let x2 = test.get()?.get()?;
 
     let x_ref : Rc<Value<A64Le, i32>> = test.get()?;
@@ -44,6 +43,7 @@ fn main() -> Result<()> {
 
     println!("x: {}, x2: {}, x3: {}", x, x2, x3);
 
+    // let x = ph.via_lib("GameAssembly.dll", |inner| Rc::new(0));
 
     // let game : impl Remote<A64Le, *const ()> = ph.point_somewhere(A64Le::ptr_null());
 
@@ -61,4 +61,20 @@ fn main() -> Result<()> {
     // let y = x.
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn it_livessssss() -> Result<()> {
+        let ph: ProcessHandle<A64Le> = ProcessHandle::new();
+
+        let x = 123_i32;
+        let remote = ph.at::<i32>(&x as *const _ as u64);
+        assert_eq!(x, remote.get()?.get()?);
+
+        Ok(())
+    }
 }

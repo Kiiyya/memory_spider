@@ -64,12 +64,16 @@ impl <A: Arch> MkRoot<A> for ProcessHandle<A> {
 }
 
 impl<A: Arch, T> Root<A> for RemoteRootActual<A, T> {
-    fn read_pointer(&self, ptr: A::Pointer) -> Result<A::Pointer> {
-        todo!()
+    fn read_pointer(&self, addr: A::Pointer) -> Result<A::Pointer> {
+        Ok(unsafe { A::addr_as_ptr::<A::Pointer>(&addr).read_unaligned() })
     }
 
     fn read(&self, addr: A::Pointer, into: &mut [u8]) -> Result<()> {
-        todo!()
+        unsafe {
+            std::ptr::copy(A::addr_as_ptr::<u8>(&addr), into.as_mut_ptr(), into.len());
+        }
+
+        Ok(())
     }
 
     fn write(&self, addr: A::Pointer, from: &[u8]) -> Result<()> {
