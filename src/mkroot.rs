@@ -6,7 +6,7 @@
 
 use std::{marker::PhantomData, rc::{Rc, Weak}};
 
-use crate::{arch::Arch, tree::{At, LibraryBase, Parent, Root, Value, ViaLib}};
+use crate::{arch::Arch, tree::{At, LibraryBase, Parent, Ptr, Root, Value, Via, ViaLib}};
 
 /// Not pub because it's internal only really.
 /// A convenience thing used by the Via/ViaLib/Value/etc impelmentations for Roots.
@@ -51,6 +51,28 @@ impl<A, R> At<A> for R
     fn at<T: Sized + 'static>(&self, offset: A::Pointer) -> Self::Result<T> {
         self.mk_root(|w_root| {
             Rc::new_cyclic(|w| Value {
+                parent: w_root.clone(),
+                offset,
+                _phantom: PhantomData,
+            })
+        })
+    }
+}
+
+impl<A, R> Via<A> for R
+    where 
+        A: Arch,
+        R: MkRoot<A>,
+{
+    type Result<T> = R::TRoot<Ptr<A, T>>;
+
+    fn via<F, Inner>(&self, offset: A::Pointer) -> Self::Result<Inner>
+    where
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>
+    {
+        self.mk_root(|w_root| {
+            Rc::new_cyclic(|w| Ptr {
                 parent: w_root.clone(),
                 offset,
                 _phantom: PhantomData,

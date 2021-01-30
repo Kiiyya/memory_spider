@@ -58,10 +58,11 @@ impl<A: Arch, T: Sized> Parent<A> for Value<A, T> {
 ////////////////////////////////////////////////////////////////////
 
 pub trait Via<A: Arch> {
-    type Result;
-    fn via<F, Inner>(&self, offset: A::Pointer) -> Self::Result
+    type Result<T>;
+    fn via<F, Inner>(&self, offset: A::Pointer) -> Self::Result<Inner>
     where
-        F: FnOnce(Weak<dyn Parent<A>>) -> Inner;
+        Inner: Sized + 'static,
+        F: FnOnce(Weak<dyn Parent<A>>) -> Rc<Inner>;
 }
 
 #[derive(Clone)]
